@@ -9,133 +9,24 @@ int main(int argc, char* argv[]) try
     using namespace rs2;
     using namespace std;
 
-    rs2::colorizer color_map;
     g_rscam = new RsCamera();
     int enableFeatures = ColorStream | DepthStream;
-    Features features = ColorStream;
-
-    char clipdist_mode = 'n';
-    float clipdist_near = 0.25f;
-    float clipdist_far = 0.25f;
-    RsCamera::rscam_clipper clipper(clipdist_near, clipdist_far);
+    
 
     bool enableFrameAlign = true;
 
     // Setup rscamera.
     g_rscam->SetResolution(1280, 720);
     g_rscam->SetFeatures(enableFeatures);
-    if (!g_rscam->Connect())
+    g_rscam->Process();
+    /*if (!g_rscam->Connect())
     {
         return 1;
-    }
+    }*/
     //g_rscam->SetFrameAlign(enableFrameAlign);
-	
-    // Setup opencv.
-    string window_name = g_rscam->GetWindowName();
-	namedWindow(window_name, WINDOW_AUTOSIZE);
-	setMouseCallback(window_name, WndMouseCallBack, NULL);
 
     // Continuous to get the frame.
-	while (getWindowProperty(window_name, WND_PROP_AUTOSIZE) >= 0)
-	{
-        frameset fms = g_rscam->GetFrames();
-		fms = g_rscam->AlignFrames(fms, RS2_STREAM_COLOR, clipper);
-        if (!fms) continue;
-
-		frame fm;
-		int rendType;
-
-        while (!(enableFeatures & features))
-        {
-            features++;
-        }
-
-        switch (features)
-        {
-        default:
-        case ColorStream:
-            fm = fms.get_color_frame();
-            rendType = CV_8UC3;
-            break;
-        case DepthStream:
-            fm = fms.get_depth_frame().apply_filter(color_map);
-            rendType = CV_8UC3;
-            break;
-        case LInfraredStream:
-            fm = fms.get_infrared_frame(1);
-            rendType = CV_8UC1;
-            break;
-        case RInfraredStream:
-            fm = fms.get_infrared_frame(2);
-            rendType = CV_8UC1;
-            break;
-        }
-        const int w = fm.as<video_frame>().get_width();
-        const int h = fm.as<video_frame>().get_height();
-
-        Mat img(Size(w, h), rendType, (void*)fm.get_data(), Mat::AUTO_STEP);
-		
-        depth_frame dptfm = fms.get_depth_frame();
-		if (dptfm)
-		{
-			for (vector<RsCamera::rscam_point*>::iterator iter = g_rscam->m_vecPoint.begin(); iter != g_rscam->m_vecPoint.end(); ++iter)
-			{
-				DrawDstText(img, dptfm, **iter);
-				//thread t(DrawDstText, img, dptfm, **iter);
-				//t.join();
-			}
-		}
-        for (std::vector<RsCamera::rscam_rectangle*>::iterator iter = g_rscam->m_vecRect.begin(); iter != g_rscam->m_vecRect.end(); ++iter)
-        {
-            DrawRectangle(img, **iter);
-        }
-
-		imshow(window_name, img);
-		int key = waitKey(1);
-        
-        if (key >= 0)
-        {
-            //cout << "[Key press] No." << key << endl;
-            switch (key)
-            {
-            case 32:
-                features++; // Press "Space" Key to Change Displaying Stream Type.
-                break;
-            case 110: // 'n'
-                clipdist_mode = 'n';
-                cout << "[clipdist] Change mode to set near value\n";
-                break;
-            case 102: // 'f'
-                clipdist_mode = 'f';
-                cout << "[clipdist] Change mode to set far value\n";
-                break;
-            case 43:  // '+'
-                if ('n' == clipdist_mode)
-                {
-                    clipdist_near += .001f;
-                }
-                else if ('f' == clipdist_mode)
-                {
-                    clipdist_far += .001f;
-                }
-                cout << "[clipdist] Change range to " << clipdist_near << " ~ " << clipdist_far << " m" << endl;
-                clipper.set(clipdist_near, clipdist_far);
-                break;
-            case 45:  // '-'
-                if ('n' == clipdist_mode)
-                {
-                    clipdist_near = (clipdist_near <= .001f) ? (clipdist_near <= 0) ? -0.001f : 0.f : clipdist_near - .001f;
-                }
-                else if ('f' == clipdist_mode)
-                {
-                    clipdist_far = (clipdist_far <= .001f) ? (clipdist_far <= 0) ? -0.001f : 0.f : clipdist_far - .001f;
-                }
-                cout << "[clipdist] Change range to " << clipdist_near << " ~ " << clipdist_far << " m" << endl;
-                clipper.set(clipdist_near, clipdist_far);
-                break;
-            }
-        }
-	}
+    //g_rscam->Display();
 
 	SAFE_DELETE(g_rscam);
 
@@ -246,7 +137,38 @@ bool RsCamera::Uninitialize()
 		SAFE_DELETE(*iter);
 	}
 
+    for (std::vector<std::thread>::iterator iter = m_wndProc.begin(); iter != m_wndProc.end(); ++iter)
+    {
+        //(*iter).join();
+        //SAFE_DELETE(iter);
+    }
+
     return true;
+}
+
+void RsCamera::Process()
+{
+    using namespace std;
+    while (true)
+    {
+        char cmd[32] = { 0 };
+        cin >> cmd;
+        
+        if (0 == strcmp(cmd, "connect"))
+        {
+            cout << (Connect() ? "[Process] Connection successed." : "[Process] Connection failed.") << endl;
+        }
+        else if (0 == strcmp(cmd, "display"))
+        {
+            cout << (Display() ? "[Process] New window opened." : "[Process] Fail to stream RealSense Camera.") << endl;
+        }
+        else if (0 == strcmp(cmd, "exit"))
+        {
+            break;
+        }
+        
+        //Sleep(10);
+    }
 }
 
 bool RsCamera::Connect()
@@ -290,7 +212,149 @@ bool RsCamera::Disconnect()
 
 bool RsCamera::Display()
 {
-    return false;
+    if (m_eState != Status::Ready)
+    {
+        if (!Connect())
+        {
+            return false;
+        }
+    }
+    m_wndProc.push_back(std::thread(&RsCamera::ProcStreamByCV, this));
+    return true;
+}
+
+void RsCamera::ProcStreamByCV(RsCamera* rscam)
+{
+    using namespace cv;
+    using namespace rs2;
+    using namespace std;
+
+    colorizer color_map;
+    Features features = ColorStream;
+
+    char clipdist_mode = 'n';
+    float clipdist_near = 0.25f;
+    float clipdist_far = 0.25f;
+    RsCamera::rscam_clipper clipper(clipdist_near, clipdist_far);
+
+    cv::namedWindow(rscam->m_sWindowName, cv::WINDOW_AUTOSIZE);
+    cv::setMouseCallback(rscam->m_sWindowName, WndMouseCallBack, NULL);
+
+    while (getWindowProperty(rscam->m_sWindowName, WND_PROP_AUTOSIZE) >= 0)
+    {
+        if (rscam->m_eState != Status::Ready && rscam->m_eState != Status::Streaming)
+            return;
+
+        //rscam->m_eState = Status::Streaming;
+        frameset fms = rscam->GetFrames();
+        fms = rscam->AlignFrames(fms, RS2_STREAM_COLOR, clipper);
+        if (!fms) continue;
+
+        frame fm;
+        int rendType;
+
+        while (!(rscam->m_Features & features))
+        {
+            features++;
+        }
+
+        switch (features)
+        {
+        default:
+        case ColorStream:
+            fm = fms.get_color_frame();
+            rendType = CV_8UC3;
+            break;
+        case DepthStream:
+            fm = fms.get_depth_frame().apply_filter(color_map);
+            rendType = CV_8UC3;
+            break;
+        case LInfraredStream:
+            fm = fms.get_infrared_frame(1);
+            rendType = CV_8UC1;
+            break;
+        case RInfraredStream:
+            fm = fms.get_infrared_frame(2);
+            rendType = CV_8UC1;
+            break;
+        }
+        const int w = fm.as<video_frame>().get_width();
+        const int h = fm.as<video_frame>().get_height();
+
+        Mat img(Size(w, h), rendType, (void*)fm.get_data(), Mat::AUTO_STEP);
+
+        // Draw rect & point
+        vector<thread> threads(0);
+
+        depth_frame dptfm = fms.get_depth_frame();
+        if (dptfm)
+        {
+            for (vector<rscam_point*>::iterator iter = rscam->m_vecPoint.begin(); iter != rscam->m_vecPoint.end(); ++iter)
+            {
+                //DrawDstText(img, dptfm, **iter);
+                threads.push_back(thread(DrawDstText, img, dptfm, **iter));
+            }
+        }
+        for (vector<rscam_rectangle*>::iterator iter = rscam->m_vecRect.begin(); iter != rscam->m_vecRect.end(); ++iter)
+        {
+            threads.push_back(thread(DrawRectangle, img, **iter));
+            //DrawRectangle(img, **iter);
+        }
+
+        for (vector<thread>::iterator iter = threads.begin(); iter != threads.end(); ++iter)
+        {
+            (*iter).join();
+        }
+
+        imshow(rscam->m_sWindowName, img);
+        int key = waitKey(1);
+
+        if (key >= 0)
+        {
+            //cout << "[Key press] No." << key << endl;
+            switch (key)
+            {
+            case 32:
+                features++; // Press "Space" Key to Change Displaying Stream Type.
+                break;
+            case 110: // 'n'
+                clipdist_mode = 'n';
+                cout << "[clipdist] Change mode to set near value\n";
+                break;
+            case 102: // 'f'
+                clipdist_mode = 'f';
+                cout << "[clipdist] Change mode to set far value\n";
+                break;
+            case 43:  // '+'
+                if ('n' == clipdist_mode)
+                {
+                    clipdist_near += .001f;
+                }
+                else if ('f' == clipdist_mode)
+                {
+                    clipdist_far += .001f;
+                }
+                cout << "[clipdist] Change range to " << clipdist_near << " ~ " << clipdist_far << " m" << endl;
+                clipper.set(clipdist_near, clipdist_far);
+                break;
+            case 45:  // '-'
+                if ('n' == clipdist_mode)
+                {
+                    clipdist_near = (clipdist_near <= .001f) ? (clipdist_near <= 0) ? -0.001f : 0.f : clipdist_near - .001f;
+                }
+                else if ('f' == clipdist_mode)
+                {
+                    clipdist_far = (clipdist_far <= .001f) ? (clipdist_far <= 0) ? -0.001f : 0.f : clipdist_far - .001f;
+                }
+                cout << "[clipdist] Change range to " << clipdist_near << " ~ " << clipdist_far << " m" << endl;
+                clipper.set(clipdist_near, clipdist_far);
+                break;
+            }
+        }
+    }
+
+    //rscam->m_eState = Status::Ready;
+    return;
 }
 
 rs2::frameset RsCamera::GetFrames()

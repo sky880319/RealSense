@@ -79,6 +79,7 @@ public:
 
     bool SetFeatures(int enable_features);
     bool SetResolution(int width, int height);
+    void Process();
     bool Connect();
     bool Disconnect();
     bool Display();
@@ -96,7 +97,11 @@ public:
 private:
     bool Initialize();
     bool Uninitialize();
+
+    static void ProcStreamByCV(RsCamera* rscam);
     void KeepImageByDepth(rs2::frameset& frameset, rs2_stream align_to, const rscam_clipper& clipper);
+
+    std::vector<std::thread> m_wndProc;
 
 	rs2::config	          m_rsConfig;
 	rs2::pipeline         m_rsPipeline;
