@@ -16,7 +16,7 @@ int main(int argc, char* argv[]) try
     bool enableFrameAlign = true;
 
     // Setup rscamera.
-    g_rscam->SetResolution(1280, 720);
+    g_rscam->SetResolution(640, 480);
     g_rscam->SetFeatures(enableFeatures);
     g_rscam->Process();
     /*if (!g_rscam->Connect())
@@ -152,22 +152,43 @@ void RsCamera::Process()
     while (true)
     {
         char cmd[32] = { 0 };
-        cin >> cmd;
+        cin.getline(cmd, 32);
         
-        if (0 == strcmp(cmd, "connect"))
+        if (0 == strcmp(cmd, "/connect"))
         {
             cout << (Connect() ? "[Process] Connection successed." : "[Process] Connection failed.") << endl;
         }
-        else if (0 == strcmp(cmd, "display"))
+        else if (0 == strcmp(cmd, "/display color"))
         {
-            cout << (Display() ? "[Process] New window opened." : "[Process] Fail to stream RealSense Camera.") << endl;
+            cout << (Display(ColorStream) ? "[Process] Start to stream color frame." : "[Process] Fail to stream color frame from RealSense Camera.") << endl;
         }
-        else if (0 == strcmp(cmd, "exit"))
+        else if (0 == strcmp(cmd, "/display depth"))
+        {
+            cout << (Display(DepthStream) ? "[Process] Start to stream depth frame." : "[Process] Fail to stream depth frame from RealSense Camera.") << endl;
+        }
+        else if (0 == strcmp(cmd, "/display infrared left"))
+        {
+            cout << (Display(LInfraredStream) ? "[Process] Start to stream left infrared frame." : "[Process] Fail to stream left infrared frame from RealSense Camera.") << endl;
+        }
+        else if (0 == strcmp(cmd, "/display infrared right"))
+        {
+            cout << (Display(RInfraredStream) ? "[Process] Start to stream right infrared frame." : "[Process] Fail to stream right infrared frame from RealSense Camera.") << endl;
+        }
+        else if (0 == strcmp(cmd, "/exit"))
         {
             break;
         }
+        else
+        {
+            cout << "[Process] Can not found the command." << endl;
+        }
         
         //Sleep(10);
+    }
+
+    for (std::vector<std::thread>::iterator iter = m_wndProc.begin(); iter != m_wndProc.end(); ++iter)
+    {
+        (*iter).join();
     }
 }
 
@@ -210,8 +231,13 @@ bool RsCamera::Disconnect()
     return false;
 }
 
-bool RsCamera::Display()
+bool RsCamera::Display(Features stream_type)
 {
+    if (!(m_Features & stream_type))
+    {
+        return false;
+    }
+
     if (m_eState != Status::Ready)
     {
         if (!Connect())
@@ -219,28 +245,31 @@ bool RsCamera::Display()
             return false;
         }
     }
-    m_wndProc.push_back(std::thread(&RsCamera::ProcStreamByCV, this));
+
+    m_wndProc.push_back(std::thread(&RsCamera::ProcStreamByCV, this, stream_type));
+
     return true;
 }
 
-void RsCamera::ProcStreamByCV(RsCamera* rscam)
+void RsCamera::ProcStreamByCV(RsCamera* rscam, Features stream_type)
 {
     using namespace cv;
     using namespace rs2;
     using namespace std;
 
     colorizer color_map;
-    Features features = ColorStream;
 
     char clipdist_mode = 'n';
     float clipdist_near = 0.25f;
     float clipdist_far = 0.25f;
     RsCamera::rscam_clipper clipper(clipdist_near, clipdist_far);
 
-    cv::namedWindow(rscam->m_sWindowName, cv::WINDOW_AUTOSIZE);
-    cv::setMouseCallback(rscam->m_sWindowName, WndMouseCallBack, NULL);
+    string windowName = rscam->m_sWindowName + " " + (char)(stream_type + 64);
 
-    while (getWindowProperty(rscam->m_sWindowName, WND_PROP_AUTOSIZE) >= 0)
+    cv::namedWindow(windowName, cv::WINDOW_AUTOSIZE);
+    cv::setMouseCallback(windowName, WndMouseCallBack, NULL);
+
+    while (getWindowProperty(windowName, WND_PROP_AUTOSIZE) >= 0)
     {
         if (rscam->m_eState != Status::Ready && rscam->m_eState != Status::Streaming)
             return;
@@ -253,12 +282,7 @@ void RsCamera::ProcStreamByCV(RsCamera* rscam)
         frame fm;
         int rendType;
 
-        while (!(rscam->m_Features & features))
-        {
-            features++;
-        }
-
-        switch (features)
+        switch (stream_type)
         {
         default:
         case ColorStream:
@@ -306,7 +330,7 @@ void RsCamera::ProcStreamByCV(RsCamera* rscam)
             (*iter).join();
         }
 
-        imshow(rscam->m_sWindowName, img);
+        imshow(windowName, img);
         int key = waitKey(1);
 
         if (key >= 0)
@@ -315,7 +339,7 @@ void RsCamera::ProcStreamByCV(RsCamera* rscam)
             switch (key)
             {
             case 32:
-                features++; // Press "Space" Key to Change Displaying Stream Type.
+                //features++; // Press "Space" Key to Change Displaying Stream Type.
                 break;
             case 110: // 'n'
                 clipdist_mode = 'n';

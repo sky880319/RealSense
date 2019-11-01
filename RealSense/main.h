@@ -18,6 +18,15 @@
 //using namespace cv;
 //using namespace std;
 
+enum Features
+{
+    ColorStream = 1,
+    DepthStream = 2,
+    LInfraredStream = 4,
+    RInfraredStream = 8,
+    Features_Last = 16,
+};
+
 template<typename ... Args>
 std::string StringFormat(const char* format, Args ... args);
 
@@ -82,7 +91,7 @@ public:
     void Process();
     bool Connect();
     bool Disconnect();
-    bool Display();
+    bool Display(Features stream_type);
 
 	std::string   GetWindowName() { return m_sWindowName; }
     rs2::frameset GetFrames();
@@ -98,7 +107,7 @@ private:
     bool Initialize();
     bool Uninitialize();
 
-    static void ProcStreamByCV(RsCamera* rscam);
+    static void ProcStreamByCV(RsCamera* rscam, Features stream_type);
     void KeepImageByDepth(rs2::frameset& frameset, rs2_stream align_to, const rscam_clipper& clipper);
 
     std::vector<std::thread> m_wndProc;
@@ -120,14 +129,7 @@ private:
     //bool m_bAlign;
 };
 
-	enum Features
-	{
-        ColorStream     = 1,
-        DepthStream     = 2,
-        LInfraredStream = 4,
-        RInfraredStream = 8,
-        Features_Last   = 16,
-	};
+
 
 std::mutex mtx;
 RsCamera* g_rscam;
