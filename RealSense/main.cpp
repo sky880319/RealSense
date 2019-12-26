@@ -1,13 +1,40 @@
 #include "main.h"
+#include <fstream>
 #pragma warning(disable: 26444)
 
+static bool GetOptions(const char* cmd, const char* opt, char* ret)
+{
+    ret[0] = '\0';
 
+    char* ptr = (char*)strstr(cmd, opt);
+    char* ptr2 = ret;
+
+    if (ptr == NULL)
+        return false;
+
+    ptr += strlen(opt);
+
+    if (*ptr != ' ')
+        return true;
+    
+    ptr++;
+    while (*ptr != 0)
+    {
+        *ptr2++ = *ptr++;
+    }
+    *ptr2 = 0;
+
+    return true;
+}
 
 int main(int argc, char* argv[]) try
 {
     using namespace cv;
     using namespace rs2;
     using namespace std;
+
+    g_bIsTester = false;
+    g_bRandMode = false;
 
     g_rscam = new RsCamera();
     int enableFeatures = ColorStream | DepthStream;
@@ -16,7 +43,7 @@ int main(int argc, char* argv[]) try
     bool enableFrameAlign = true;
 
     // Setup rscamera.
-    g_rscam->SetResolution(640, 480);
+    g_rscam->SetResolution(1280, 720);
     g_rscam->SetFeatures(enableFeatures);
     g_rscam->Process();
     /*if (!g_rscam->Connect())
@@ -143,36 +170,193 @@ bool RsCamera::Uninitialize()
         //SAFE_DELETE(iter);
     }
 
+    m_vecPoint.clear();
+    m_vecRect.clear();
+    //m_wndProc.clear();
+
     return true;
 }
 
 void RsCamera::Process()
 {
     using namespace std;
+
     while (true)
     {
         char cmd[32] = { 0 };
-        cin.getline(cmd, 32);
-        
+        char out[16];
+        cin.getline(cmd, 31);
+        if (cmd[0] != '/')
+        {
+            continue;
+        }
+
         if (0 == strcmp(cmd, "/connect"))
         {
             cout << (Connect() ? "[Process] Connection successed." : "[Process] Connection failed.") << endl;
         }
-        else if (0 == strcmp(cmd, "/display color"))
+        else if (GetOptions(cmd, "/display", out))
         {
-            cout << (Display(ColorStream) ? "[Process] Start to stream color frame." : "[Process] Fail to stream color frame from RealSense Camera.") << endl;
+            char out2[8];
+            if (0 == strcmp(out, "color"))
+            {
+                cout << (Display(ColorStream) ? "[Process] Start to stream color frame." : "[Process] Fail to stream color frame from RealSense Camera.") << endl;
+            }
+            else if (0 == strcmp(out, "depth"))
+            {
+                cout << (Display(DepthStream) ? "[Process] Start to stream depth frame." : "[Process] Fail to stream depth frame from RealSense Camera.") << endl;
+            }
+            else if (GetOptions(out, "infrared", out2))
+            {
+                if (0 == strcmp(out, "left"))
+                {
+                    cout << (Display(LInfraredStream) ? "[Process] Start to stream left infrared frame." : "[Process] Fail to stream left infrared frame from RealSense Camera.") << endl;
+                }
+                else if (0 == strcmp(out, "right"))
+                {
+                    cout << (Display(RInfraredStream) ? "[Process] Start to stream right infrared frame." : "[Process] Fail to stream right infrared frame from RealSense Camera.") << endl;
+                }
+            }
         }
-        else if (0 == strcmp(cmd, "/display depth"))
+        else if (GetOptions(cmd, "/clear", out))
         {
-            cout << (Display(DepthStream) ? "[Process] Start to stream depth frame." : "[Process] Fail to stream depth frame from RealSense Camera.") << endl;
+            if (0 == strcmp(out, "allpoint"))
+            {
+                for (std::vector<rscam_point*>::iterator iter = m_vecPoint.begin(); iter != m_vecPoint.end(); ++iter)
+                {
+                    SAFE_DELETE(*iter);
+                }
+                m_vecPoint.clear();
+            }
+            else if (0 == strcmp(out, "allrect"))
+            {
+                for (std::vector<rscam_rectangle*>::iterator iter = m_vecRect.begin(); iter != m_vecRect.end(); ++iter)
+                {
+                    SAFE_DELETE(*iter);
+                }
+                m_vecRect.clear();
+            }
         }
-        else if (0 == strcmp(cmd, "/display infrared left"))
+        else if (0 == strcmp(cmd, "/toggle res"))
         {
-            cout << (Display(LInfraredStream) ? "[Process] Start to stream left infrared frame." : "[Process] Fail to stream left infrared frame from RealSense Camera.") << endl;
+            if (m_iRes_height == 720)
+            {
+                if (SetResolution(640, 480))
+                {
+                    cout << "[Resolution] Toggle resolution to 480p." << endl;
+                }
+                else
+                {
+                    cout << "[Resolution] Toggle resolution to 480p failed." << endl;
+                }
+            }
+            else
+            {
+                
+                if (SetResolution(1280, 720))
+                {
+                    cout << "[Resolution] Toggle resolution to 720p." << endl;
+                }
+                else
+                {
+                    cout << "[Resolution] Toggle resolution to 720p failed." << endl;
+                }
+            }
         }
-        else if (0 == strcmp(cmd, "/display infrared right"))
+        else if (GetOptions(cmd, "/get", out))
         {
-            cout << (Display(RInfraredStream) ? "[Process] Start to stream right infrared frame." : "[Process] Fail to stream right infrared frame from RealSense Camera.") << endl;
+            int n = atoi(out);
+            if (n > 0 &&
+                n <= m_vecPoint.size())
+            {
+                float x, y;
+                x = m_vecPoint[n - 1]->x;
+                y = m_vecPoint[n - 1]->y;
+                rs2::frameset fms = GetFrames();
+                fms = AlignFrames(fms, RS2_STREAM_COLOR);
+                cout << "(" << x << "," << y << ") " << fms.get_depth_frame().get_distance(x, y);
+            }
+        }
+        else if (0 == strcmp(cmd, "/draw-info"))
+        {
+            cout << "Point: " << m_vecPoint.size() << endl;
+            cout << "Rectangle: " << m_vecRect.size() << endl;
+        }
+        else if (GetOptions(cmd, "/export", out))
+        {
+            if (Status::Ready != m_eState)
+                continue;
+
+            rs2::frameset fms = GetFrames();
+            rs2::depth_frame dptfm = AlignFrames(fms, RS2_STREAM_COLOR).get_depth_frame();
+            std::string filename;
+
+            if (0 == strlen(out))
+            {
+                filename = "export.json";
+            }
+            else
+            {
+                (filename = out) += ".json";
+            }
+
+            fstream fs;
+            fs.open(filename.c_str(), ios::out);
+            if (!fs)
+            {
+                cout << "[Export] Open file failed." << endl;
+                continue;
+            }
+
+            fs << "{\n";
+
+            for (int i = 0; i < m_vecRect.size(); i++)
+            {
+                int rp1x, rp1y, rp2x, rp2y;
+                rp1x = m_vecRect[i]->p1.x;
+                rp1y = m_vecRect[i]->p1.y;
+                rp2x = m_vecRect[i]->p2.x;
+                rp2y = m_vecRect[i]->p2.y;
+
+                if ((rp1y - rp2y) == 0 ||
+                    (rp1x - rp2x) == 0)
+                {
+                    continue;
+                }
+
+                fs << ((i == 0) ? "" : ",\n") << "\"Rectangle" << i << "\":{\n";
+
+                // Let p1 always at up-left side, p2 always at down-right side.
+                if ((rp1y - rp2y) > 0)
+                    rp1y ^= rp2y ^= rp1y ^= rp2y;
+                if ((rp1x - rp2x) > 0)
+                    rp1x ^= rp2x ^= rp1x ^= rp2x;
+
+                fs << "    \"Position1\":" << "[" << rp1x << "," << rp1y << "],\n";
+                fs << "    \"Position2\":" << "[" << rp2x << "," << rp2y << "],\n";
+                fs << "    \"Distance\":[";
+
+                int count = 0;
+                for (std::vector<rscam_point*>::iterator piter = m_vecPoint.begin(); piter != m_vecPoint.end(); ++piter)
+                {
+                    // Find the points which is in the area of rectangle.
+                    if ((*piter)->x >= rp1x &&
+                        (*piter)->x <= rp2x && 
+                        (*piter)->y >= rp1y && 
+                        (*piter)->y <= rp2y)
+                    {
+                        float dist = dptfm.get_distance((*piter)->x, (*piter)->y);
+                        fs << ((count == 0) ? "" : ",") << dist;
+                        count++;
+                    }
+                }
+
+                fs << "]\n    }";
+            }
+
+            fs << "\n}";
+            fs.close();
+            cout << "[Export] Success: \"" << filename << "\"" << endl;
         }
         else if (0 == strcmp(cmd, "/exit"))
         {
@@ -308,27 +492,8 @@ void RsCamera::ProcStreamByCV(RsCamera* rscam, Features stream_type)
         Mat img(Size(w, h), rendType, (void*)fm.get_data(), Mat::AUTO_STEP);
 
         // Draw rect & point
-        vector<thread> threads(0);
-
-        depth_frame dptfm = fms.get_depth_frame();
-        if (dptfm)
-        {
-            for (vector<rscam_point*>::iterator iter = rscam->m_vecPoint.begin(); iter != rscam->m_vecPoint.end(); ++iter)
-            {
-                //DrawDstText(img, dptfm, **iter);
-                threads.push_back(thread(DrawDstText, img, dptfm, **iter));
-            }
-        }
-        for (vector<rscam_rectangle*>::iterator iter = rscam->m_vecRect.begin(); iter != rscam->m_vecRect.end(); ++iter)
-        {
-            threads.push_back(thread(DrawRectangle, img, **iter));
-            //DrawRectangle(img, **iter);
-        }
-
-        for (vector<thread>::iterator iter = threads.begin(); iter != threads.end(); ++iter)
-        {
-            (*iter).join();
-        }
+        thread drawAll(DrawAll, fms, img, rscam->m_vecPoint, rscam->m_vecRect);
+        drawAll.join();
 
         imshow(windowName, img);
         int key = waitKey(1);
@@ -373,6 +538,12 @@ void RsCamera::ProcStreamByCV(RsCamera* rscam, Features stream_type)
                 cout << "[clipdist] Change range to " << clipdist_near << " ~ " << clipdist_far << " m" << endl;
                 clipper.set(clipdist_near, clipdist_far);
                 break;
+            case 116:
+                cout << "[Tester] " << ((g_bIsTester = !g_bIsTester) ? "Enable" : "Disable") << endl;
+                break;
+            case 114:
+                cout << "[RandTest] " << ((g_bRandMode = !g_bRandMode) ? "Enable" : "Disable") << endl;
+                break;
             }
         }
     }
@@ -415,15 +586,78 @@ void WndMouseCallBack(int event, int x, int y, int flags, void* userdata)
 		{
 			firstPoint = new RsCamera::rscam_point(x, y);
 			std::cout << "First point: ";
+            printf("(%d, %d)\n", x, y);
 		}
 		else
 		{
-			RsCamera::rscam_point* secondPoint = &RsCamera::rscam_point(x, y);
-			g_rscam->m_vecRect.push_back(new RsCamera::rscam_rectangle(*firstPoint, *secondPoint));
-			SAFE_DELETE(firstPoint);
-			std::cout << "Second point: ";
+            RsCamera::rscam_point* secondPoint = &RsCamera::rscam_point(x, y);
+            RsCamera::rscam_rectangle* rect = new RsCamera::rscam_rectangle(*firstPoint, *secondPoint);
+            g_rscam->m_vecRect.push_back(rect);
+            std::cout << "Second point: ";
+            printf("(%d, %d)\n", x, y);
+
+            if (g_bIsTester)
+            {
+                int rp1x, rp1y, rp2x, rp2y;
+                rp1x = rect->p1.x;
+                rp1y = rect->p1.y;
+                rp2x = rect->p2.x;
+                rp2y = rect->p2.y;
+
+                if ((rp1y - rp2y) != 0 ||
+                    (rp1x - rp2x) != 0)
+                {
+                    // Let p1 always at up-left side, p2 always at down-right side.
+                    if ((rp1y - rp2y) > 0)
+                        rp1y ^= rp2y ^= rp1y ^= rp2y;
+                    if ((rp1x - rp2x) > 0)
+                        rp1x ^= rp2x ^= rp1x ^= rp2x;
+
+                    int padding_x = 10;
+                    int padding_y = 10;
+
+                    rp1x += padding_x;
+                    rp2x -= padding_x;
+                    rp1y += padding_y;
+                    rp2y -= padding_y;
+
+                    int interval_x = (rp2x - rp1x) / 5;
+                    int interval_y = (rp2y - rp1y) / 5;
+
+                    if (g_bRandMode)
+                    {
+                        srand((unsigned)time(NULL));
+
+                        for (int i = 0; i < 5; i++)
+                        {
+                            for (int j = 0; j < 5; j++)
+                            {
+                                int wpx = interval_x * rand() / RAND_MAX + rp1x + interval_x * i;
+                                int wpy = interval_y * rand() / RAND_MAX + rp1y + interval_y * j;
+
+                                printf("[Watchpoint] Add: (%d, %d)\n", wpx, wpy);
+                                g_rscam->m_vecPoint.push_back(new RsCamera::rscam_point(wpx, wpy));
+                            }
+                        }
+                        std::cout << "[Tester] Create random watchpoint success." << std::endl;
+                    }
+                    else
+                    {
+                        for (int wpx = rp1x; wpx <= rp2x; wpx += interval_x)
+                        {
+                            for (int wpy = rp1y; wpy <= rp2y; wpy += interval_y)
+                            {
+                                printf("[Watchpoint] Add: (%d, %d)\n", wpx, wpy);
+                                g_rscam->m_vecPoint.push_back(new RsCamera::rscam_point(wpx, wpy));
+                            }
+                        }
+                        std::cout << "[Tester] Create array watchpoint success." << std::endl;
+                    }
+                }
+            }
+
+            SAFE_DELETE(firstPoint);
 		}
-        printf("(%d, %d)\n", x, y);
 	}
 }
 
@@ -459,6 +693,33 @@ void DrawRectangle(cv::Mat img, RsCamera::rscam_rectangle rect)
 	cv::line(img, cv::Point(rect.p1.x, rect.p1.y), cv::Point(rect.p1.x, rect.p2.y), cv::Scalar(255, 255, 255));
 	cv::line(img, cv::Point(rect.p2.x, rect.p2.y), cv::Point(rect.p2.x, rect.p1.y), cv::Scalar(255, 255, 255));
 	cv::line(img, cv::Point(rect.p2.x, rect.p2.y), cv::Point(rect.p1.x, rect.p2.y), cv::Scalar(255, 255, 255));
+}
+
+void DrawAll(rs2::frameset fms, cv::Mat img, rsc_points points, rsc_rectangles rects)
+{
+    using namespace std;
+    using namespace rs2;
+
+    lock_guard<mutex> mLock(mtx);
+
+    depth_frame dptfm = fms.get_depth_frame();
+    if (dptfm)
+    {
+        for (rsc_points::iterator iter = points.begin(); iter != points.end(); ++iter)
+        {
+            if (*iter)
+            {
+                DrawDstText(img, dptfm, **iter);
+            }
+        }
+    }
+    for (rsc_rectangles::iterator iter = rects.begin(); iter != rects.end(); ++iter)
+    {
+        if (*iter)
+        {
+            DrawRectangle(img, **iter);
+        }
+    }
 }
 
 void RsCamera::KeepImageByDepth(rs2::frameset& frameset, rs2_stream align_to, const rscam_clipper& clipper)

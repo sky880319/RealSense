@@ -1,0 +1,12 @@
+﻿  main.cpp
+C:\Scara\scif.h(32): warning C4005: 'EXTERN_C_END': 巨集重複定義
+  C:\Program Files (x86)\Windows Kits\10\Include\10.0.17763.0\um\winnt.h(673): note: 請參閱 'EXTERN_C_END' 之前的定義
+C:\Program Files (x86)\Intel RealSense SDK 2.0\include\librealsense2\hpp\rs_device.hpp(251): warning C4267: '引數': 將 'size_t' 轉換為 'int'，資料可能遺失
+D:\Source\RealSense\RealSense\main.cpp(273): warning C4244: '=': 將 'int' 轉換為 'float'，由於類型不同，可能導致資料遺失
+D:\Source\RealSense\RealSense\main.cpp(274): warning C4244: '=': 將 'int' 轉換為 'float'，由於類型不同，可能導致資料遺失
+D:\Source\RealSense\RealSense\main.cpp(277): warning C4244: '引數': 將 'float' 轉換為 'int'，由於類型不同，可能導致資料遺失
+  正在產生程式碼
+  Previous IPDB not found, fall back to full compilation.
+  All 1334 functions were compiled because no usable IPDB/IOBJ from previous compilation was found.
+  已完成程式碼產生
+  RealSense.vcxproj -> D:\Source\RealSense\x64\Release\RealSense.exe

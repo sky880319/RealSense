@@ -129,14 +129,20 @@ private:
     //bool m_bAlign;
 };
 
-
+typedef std::vector<RsCamera::rscam_point*> rsc_points;
+typedef std::vector<RsCamera::rscam_rectangle*> rsc_rectangles;
 
 std::mutex mtx;
 RsCamera* g_rscam;
 RsCamera::rscam_point* firstPoint;
+
+bool g_bIsTester;
+bool g_bRandMode;
+
 void WndMouseCallBack(int event, int x, int y, int flags, void* userdata);
 float DrawDstText(cv::Mat img, rs2::depth_frame dptfm, RsCamera::rscam_point p);
 void DrawRectangle(cv::Mat img, RsCamera::rscam_rectangle rect);
+void DrawAll(rs2::frameset fms, cv::Mat img, rsc_points points, rsc_rectangles rects);
 
 inline Features& operator++(Features& state, int) 
 {
